@@ -167,6 +167,12 @@ isGun(gun)
 
 changeweapon()
 {
+	if (isDefined(self.e_afterlife_corpse))
+	{
+		self waittill( "player_revived" );
+		wait 1.5;
+	}
+	
 	shouldupgrade = maps\mp\zombies\_zm_weapons::can_upgrade_weapon( self getcurrentweapon() );
 	
 	primaries = self getweaponslistprimaries();
