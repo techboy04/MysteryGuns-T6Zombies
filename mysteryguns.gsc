@@ -722,7 +722,7 @@ betaMessage()
     betamessage.horzalign = "right";
     betamessage.vertalign = "top";
 	betamessage.foreground = 1;
-	betamessage setText ("TechnoOps Collection\nMystery Guns Beta\nb0.8");
+	betamessage setText ("TechnoOps Collection\nMystery Guns Beta\nb0.1");
 }
 
 set_time_frozen_on_end_game()
