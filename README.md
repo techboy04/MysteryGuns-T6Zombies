@@ -4,7 +4,7 @@ I decided to make a little mode in Zombies.
 I did make this mode a little rough on the edges but it should work pretty well.
 
 IF YOURE PLAYING MOB OF THE DEAD:
-You WILL need this fix or else the game will spam infinite. Use the ``mob_mysteryguns_fix.gsc`` in ``scripts\zm\zm_prison\``
+You WILL need this fix or else the game will spam infinite loops. Use the ``mob_mysteryguns_fix.gsc`` in ``scripts\zm\zm_prison\``
 
 After each round, you will be given a random weapon. If the previous weapon was upgraded, then the next weapon will also be upgraded.
 
