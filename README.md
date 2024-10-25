@@ -1,4 +1,4 @@
-# Mystery Guns - Plutonium T6 Zombies - Beta 0.1
+# Mystery Guns - Plutonium T6 Zombies - Beta 0.2
 I decided to make a little mode in Zombies.
 
 I did make this mode a little rough on the edges but it should work pretty well.
@@ -13,7 +13,7 @@ Wallbuys and Mysteryboxes are unavailable.
 By Default, there is no perk limit
 
 ## Installation
-Download gungame.gsc and put it in your Plutonium T6 scripts folder
+Download mysteryguns.gsc and put it in your Plutonium T6 scripts folder
 
 ```%localappdata%\Plutonium\storage\t6\scripts\zm\```
 
