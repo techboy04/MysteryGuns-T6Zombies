@@ -25,6 +25,7 @@ main()
 		replacefunc(maps\mp\zombies\_zm_audio_announcer::init, ::init_audio_announcer);
 
 		replacefunc(maps\mp\zombies\_zm::round_think, ::round_think_minigame);
+		replacefunc(maps\mp\zombies\_zm_powerups::init_powerups, ::init_powerups_mysteryguns);
 	}
 }
 
@@ -41,6 +42,10 @@ init()
 		level.mysterygunsstarted = 0;
 		level thread roll_weapon_on_round_over();
 		level thread introHUD();
+		if(isDefined(level.custom_pap_validation)){
+			level.original_custom_pap_validation = level.custom_pap_validation;
+		}
+		level.custom_pap_validation = ::instapap;
 	
 //		for( i = 0; i < 8; i++ )
 //		{
@@ -58,6 +63,8 @@ onPlayerConnect()
         level waittill("connected", player);
 
         player thread onPlayerSpawned();
+		
+		player thread loopmaxammo();
 		
 		player thread respawnPlayer();
     }
@@ -121,11 +128,6 @@ new_treasure_chest_init( start_chest_name )
 
 }
 
-new_weapon_spawn_think()
-{
-
-}
-
 new_vending_weapon_upgrade()
 {
 
@@ -173,18 +175,23 @@ changeweapon()
 		wait 1.5;
 	}
 	
-	shouldupgrade = maps\mp\zombies\_zm_weapons::can_upgrade_weapon( self getcurrentweapon() );
-	
 	primaries = self getweaponslistprimaries();
+	
+	previous = self getcurrentweapon();
+	gun = previous;
 	
 	foreach (weapon in primaries)
 	{
 		self takeweapon(weapon);
 	}
 	
-	gun = rollgun();
+	while(previous == gun)
+	{
+		gun = rollgun();
+	}
 	
-	if (shouldupgrade)
+	
+	if (self.hasupgraded != true)
 	{
 		self weapon_give( gun, 0, 0, 1 );
 	}
@@ -196,8 +203,8 @@ changeweapon()
 	}
 }
 
-rollgun()
-{
+rollgun(player)
+{	
 	rand = random(level.weaponlist);
 	
 	return rand;
@@ -672,7 +679,7 @@ startHUDMessage()
 	hud3.color = ( 1, 1, 1 );
 	hud3.hidewheninmenu = 1;
 	hud3.foreground = 1;
-	hud3 settext("Get a specified amount of kills to advance. First to complete the ladder wins!");
+	hud3 settext("Weapons roll after each round. If weapon is upgraded, the next will be upgraded aswell.");
 	hud3.fontscale = 2;
 	hud3 changefontscaleovertime( 1 );
     hud3 fadeovertime( 1 );
@@ -722,7 +729,7 @@ betaMessage()
     betamessage.horzalign = "right";
     betamessage.vertalign = "top";
 	betamessage.foreground = 1;
-	betamessage setText ("TechnoOps Collection\nMystery Guns Beta\nb0.1");
+	betamessage setText ("TechnoOps Collection\nMystery Guns Beta\nb0.2");
 }
 
 set_time_frozen_on_end_game()
@@ -771,4 +778,425 @@ set_time_frozen(time, endon_notify)
 
 		wait 0.5;
 	}
+}
+
+instapap(player){
+	current_weapon = player getcurrentweapon();
+	current_weapon = player maps\mp\zombies\_zm_weapons::switch_from_alt_weapon( current_weapon );
+	if ( !player maps\mp\zombies\_zm_magicbox::can_buy_weapon() && !player maps\mp\zombies\_zm_laststand::player_is_in_laststand() && !is_true( player.intermission ) || player isthrowinggrenade() && !player maps\mp\zombies\_zm_weapons::can_upgrade_weapon( current_weapon ) )
+	{
+		wait 0.1;
+		return 0;
+	}
+	if ( is_true( level.pap_moving ) )
+	{
+		return 0;
+	}
+	if ( player isswitchingweapons() )
+	{
+		wait 0.1;
+		if ( player isswitchingweapons() )
+		{
+			return 0;
+		}
+	}
+	if ( !maps\mp\zombies\_zm_weapons::is_weapon_or_base_included( current_weapon ) )
+	{
+		return 0;
+	}
+	if(isDefined(level.original_custom_pap_validation)){
+		if(!self [[ level.original_custom_pap_validation ]]( player )){
+			return 0;
+		}
+	}
+	current_cost = self.cost;
+	player.restore_ammo = undefined;
+	player.restore_clip = undefined;
+	player.restore_stock = undefined;
+	player_restore_clip_size = undefined;
+	player.restore_max = undefined;
+	upgrade_as_attachment = will_upgrade_weapon_as_attachment( current_weapon );
+	if ( upgrade_as_attachment )
+	{
+		current_cost = self.attachment_cost;
+		player.restore_ammo = 1;
+		player.restore_clip = player getweaponammoclip( current_weapon );
+		player.restore_clip_size = weaponclipsize( current_weapon );
+		player.restore_stock = player getweaponammostock( current_weapon );
+		player.restore_max = weaponmaxammo( current_weapon );
+	}
+	if ( player maps\mp\zombies\_zm_pers_upgrades_functions::is_pers_double_points_active() )
+	{
+		current_cost = player maps\mp\zombies\_zm_pers_upgrades_functions::pers_upgrade_double_points_cost( current_cost );
+	}
+	if ( player.score < current_cost ) 
+	{
+		self playsound( "deny" );
+		if ( isDefined( level.custom_pap_deny_vo_func ) )
+		{
+			player [[ level.custom_pap_deny_vo_func ]]();
+		}
+		else
+		{
+			player maps\mp\zombies\_zm_audio::create_and_play_dialog( "general", "perk_deny", undefined, 0 );
+		}
+		return 0;
+	}
+	
+	self.pack_player = player;
+	flag_set( "pack_machine_in_use" );
+	maps\mp\_demo::bookmark( "zm_player_use_packapunch", getTime(), player );
+	player maps\mp\zombies\_zm_stats::increment_client_stat( "use_pap" );
+	player maps\mp\zombies\_zm_stats::increment_player_stat( "use_pap" );
+	player maps\mp\zombies\_zm_score::minus_to_player_score( current_cost, 1 );
+	sound = "evt_bottle_dispense";
+	playsoundatposition( sound, self.origin );
+	self thread maps\mp\zombies\_zm_audio::play_jingle_or_stinger( "mus_perks_packa_sting" );
+	player maps\mp\zombies\_zm_audio::create_and_play_dialog( "weapon_pickup", "upgrade_wait" );
+	if ( !is_true( upgrade_as_attachment ) )
+	{
+		player thread do_player_general_vox( "general", "pap_wait", 10, 100 );
+	}
+	else
+	{
+		player thread do_player_general_vox( "general", "pap_wait2", 10, 100 );
+	}
+	self.current_weapon = current_weapon;
+	upgrade_name = maps\mp\zombies\_zm_weapons::get_upgrade_weapon( current_weapon, upgrade_as_attachment );
+	
+	//wait_for_player_to_take
+	upgrade_weapon = upgrade_name;
+	player maps\mp\zombies\_zm_stats::increment_client_stat( "pap_weapon_grabbed" );
+	player maps\mp\zombies\_zm_stats::increment_player_stat( "pap_weapon_grabbed" );
+	current_weapon = player getcurrentweapon();
+	if ( is_player_valid( player ) && !player.is_drinking && !is_placeable_mine( current_weapon ) && !is_equipment( current_weapon ) && level.revive_tool != current_weapon && current_weapon != "none" && !player hacker_active() )
+	{
+		player takeWeapon(current_weapon);
+		maps\mp\_demo::bookmark( "zm_player_grabbed_packapunch", getTime(), player );
+		self notify( "pap_taken" );
+		player notify( "pap_taken" );
+		player.pap_used = 1;
+		if ( !is_true( upgrade_as_attachment ) )
+		{
+			player thread do_player_general_vox( "general", "pap_arm", 15, 100 );
+		}
+		else
+		{
+			player thread do_player_general_vox( "general", "pap_arm2", 15, 100 );
+		}
+		weapon_limit = get_player_weapon_limit( player );
+		player maps\mp\zombies\_zm_weapons::take_fallback_weapon();
+		primaries = player getweaponslistprimaries();
+		if ( isDefined( primaries ) && primaries.size >= weapon_limit )
+		{
+			player maps\mp\zombies\_zm_weapons::weapon_give( upgrade_weapon );
+		}
+		else
+		{
+			player giveweapon( upgrade_weapon, 0, player maps\mp\zombies\_zm_weapons::get_pack_a_punch_weapon_options( upgrade_weapon ) );
+			player givestartammo( upgrade_weapon );
+		}
+		player switchtoweapon( upgrade_weapon );
+		if ( is_true( player.restore_ammo ) )
+		{
+			new_clip = player.restore_clip + ( weaponclipsize( upgrade_weapon ) - player.restore_clip_size );
+			new_stock = player.restore_stock + ( weaponmaxammo( upgrade_weapon ) - player.restore_max );
+			player setweaponammostock( upgrade_weapon, new_stock );
+			player setweaponammoclip( upgrade_weapon, new_clip );
+		}
+
+		player.hasupgraded = true;
+
+		player.restore_ammo = undefined;
+		player.restore_clip = undefined;
+		player.restore_stock = undefined;
+		player.restore_max = undefined;
+		player.restore_clip_size = undefined;
+		player maps\mp\zombies\_zm_weapons::play_weapon_vo( upgrade_weapon );
+	}
+
+	self.current_weapon = "";
+	if ( is_true( level.zombiemode_reusing_pack_a_punch ) )
+	{
+		self sethintstring( &"ZOMBIE_PERK_PACKAPUNCH_ATT", self.cost );
+	}
+	else
+	{
+		self sethintstring( &"ZOMBIE_PERK_PACKAPUNCH", self.cost );
+	}
+	self setvisibletoall();
+	self.pack_player = undefined;
+	flag_clear( "pack_machine_in_use" );
+	return 0;	
+}
+
+init_powerups_mysteryguns()
+{
+    flag_init( "zombie_drop_powerups" );
+
+    if ( isdefined( level.enable_magic ) && level.enable_magic )
+        flag_set( "zombie_drop_powerups" );
+
+    if ( !isdefined( level.active_powerups ) )
+        level.active_powerups = [];
+
+    if ( !isdefined( level.zombie_powerup_array ) )
+        level.zombie_powerup_array = [];
+
+    if ( !isdefined( level.zombie_special_drop_array ) )
+        level.zombie_special_drop_array = [];
+
+	add_zombie_powerup( "nuke", "zombie_bomb", &"ZOMBIE_POWERUP_NUKE", ::func_should_always_drop, 0, 0, 0, "misc/fx_zombie_mini_nuke_hotness" );
+	add_zombie_powerup( "insta_kill", "zombie_skull", &"ZOMBIE_POWERUP_INSTA_KILL", ::func_should_always_drop, 0, 0, 0, undefined, "powerup_instant_kill", "zombie_powerup_insta_kill_time", "zombie_powerup_insta_kill_on" );
+	add_zombie_powerup( "full_ammo", "zombie_ammocan", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 0, 0, 0 );
+	add_zombie_powerup( "double_points", "zombie_x2_icon", &"ZOMBIE_POWERUP_DOUBLE_POINTS", ::func_should_always_drop, 0, 0, 0, undefined, "powerup_double_points", "zombie_powerup_point_doubler_time", "zombie_powerup_point_doubler_on" );
+	add_zombie_powerup( "carpenter", "zombie_carpenter", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_always_drop, 0, 0, 0 );
+	add_zombie_powerup( "fire_sale", "zombie_firesale", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 0, 0, 0, undefined, "powerup_fire_sale", "zombie_powerup_fire_sale_time", "zombie_powerup_fire_sale_on" );
+	add_zombie_powerup( "bonfire_sale", "zombie_pickup_bonfire", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 0, 0, 0, undefined, "powerup_bon_fire", "zombie_powerup_bonfire_sale_time", "zombie_powerup_bonfire_sale_on" );
+	add_zombie_powerup( "minigun", "zombie_pickup_minigun", &"ZOMBIE_POWERUP_MINIGUN", ::func_should_never_drop, 1, 0, 0, undefined, "powerup_mini_gun", "zombie_powerup_minigun_time", "zombie_powerup_minigun_on" );
+	add_zombie_powerup( "free_perk", "zombie_pickup_perk_bottle", &"ZOMBIE_POWERUP_FREE_PERK", ::func_should_never_drop, 0, 0, 0 );
+	add_zombie_powerup( "tesla", "zombie_pickup_minigun", &"ZOMBIE_POWERUP_MINIGUN", ::func_should_never_drop, 1, 0, 0, undefined, "powerup_tesla", "zombie_powerup_tesla_time", "zombie_powerup_tesla_on" );
+	add_zombie_powerup( "random_weapon", "zombie_pickup_minigun", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 1, 0, 0 );
+	add_zombie_powerup( "bonus_points_player", "zombie_z_money_icon", &"ZOMBIE_POWERUP_BONUS_POINTS", ::func_should_never_drop, 1, 0, 0 );
+	add_zombie_powerup( "bonus_points_team", "zombie_z_money_icon", &"ZOMBIE_POWERUP_BONUS_POINTS", ::func_should_never_drop, 0, 0, 0 );
+	add_zombie_powerup( "lose_points_team", "zombie_z_money_icon", &"ZOMBIE_POWERUP_LOSE_POINTS", ::func_should_never_drop, 0, 0, 1 );
+	add_zombie_powerup( "lose_perk", "zombie_pickup_perk_bottle", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 0, 0, 1 );
+	add_zombie_powerup( "empty_clip", "zombie_ammocan", &"ZOMBIE_POWERUP_MAX_AMMO", ::func_should_never_drop, 0, 0, 1 );
+	add_zombie_powerup( "insta_kill_ug", "zombie_skull", &"ZOMBIE_POWERUP_INSTA_KILL", ::func_should_never_drop, 1, 0, 0, undefined, "powerup_instant_kill_ug", "zombie_powerup_insta_kill_ug_time", "zombie_powerup_insta_kill_ug_on", 5000 );
+
+
+    if ( isdefined( level.level_specific_init_powerups ) )
+        [[ level.level_specific_init_powerups ]]();
+
+    randomize_powerups();
+    level.zombie_powerup_index = 0;
+    randomize_powerups();
+    level.rare_powerups_active = 0;
+    level.firesale_vox_firstime = 0;
+    level thread powerup_hud_monitor();
+
+    if ( isdefined( level.quantum_bomb_register_result_func ) )
+    {
+        [[ level.quantum_bomb_register_result_func ]]( "random_powerup", ::quantum_bomb_random_powerup_result, 5, level.quantum_bomb_in_playable_area_validation_func );
+        [[ level.quantum_bomb_register_result_func ]]( "random_zombie_grab_powerup", ::quantum_bomb_random_zombie_grab_powerup_result, 5, level.quantum_bomb_in_playable_area_validation_func );
+        [[ level.quantum_bomb_register_result_func ]]( "random_weapon_powerup", ::quantum_bomb_random_weapon_powerup_result, 60, level.quantum_bomb_in_playable_area_validation_func );
+        [[ level.quantum_bomb_register_result_func ]]( "random_bonus_or_lose_points_powerup", ::quantum_bomb_random_bonus_or_lose_points_powerup_result, 25, level.quantum_bomb_in_playable_area_validation_func );
+    }
+
+    registerclientfield( "scriptmover", "powerup_fx", 1000, 3, "int" );
+}
+
+loopmaxammo()
+{
+    while(1)
+	{
+		if ( self hasweapon( self getcurrentweapon() ) )
+			self givemaxammo( self getcurrentweapon() );
+		wait 0.1;
+	}
+}
+
+new_weapon_spawn_think()
+{
+    cost = get_weapon_cost( self.zombie_weapon_upgrade );
+    ammo_cost = get_ammo_cost( self.zombie_weapon_upgrade );
+    is_grenade = weapontype( self.zombie_weapon_upgrade ) == "grenade";
+    shared_ammo_weapon = undefined;
+    second_endon = undefined;
+
+    if ( isdefined( self.stub ) )
+    {
+        second_endon = "kill_trigger";
+        self.first_time_triggered = self.stub.first_time_triggered;
+    }
+
+    if ( isdefined( self.stub ) && ( isdefined( self.stub.trigger_per_player ) && self.stub.trigger_per_player ) )
+        self thread decide_hide_show_hint( "stop_hint_logic", second_endon, self.parent_player );
+    else
+        self thread decide_hide_show_hint( "stop_hint_logic", second_endon );
+
+    if ( is_grenade )
+    {
+        self.first_time_triggered = 0;
+        hint = get_weapon_hint( self.zombie_weapon_upgrade );
+        self sethintstring( hint, cost );
+    }
+	else
+	{
+		return;
+	}
+
+    for (;;)
+    {
+        self waittill( "trigger", player );
+
+        if ( !is_player_valid( player ) )
+        {
+            player thread ignore_triggers( 0.5 );
+            continue;
+        }
+
+        if ( !player can_buy_weapon() )
+        {
+            wait 0.1;
+            continue;
+        }
+
+        if ( isdefined( self.stub ) && ( isdefined( self.stub.require_look_from ) && self.stub.require_look_from ) )
+        {
+            toplayer = player get_eye() - self.origin;
+            forward = -1 * anglestoright( self.angles );
+            dot = vectordot( toplayer, forward );
+
+            if ( dot < 0 )
+                continue;
+        }
+
+        if ( player has_powerup_weapon() )
+        {
+            wait 0.1;
+            continue;
+        }
+
+        player_has_weapon = player has_weapon_or_upgrade( self.zombie_weapon_upgrade );
+
+        if ( !player_has_weapon && ( isdefined( level.weapons_using_ammo_sharing ) && level.weapons_using_ammo_sharing ) )
+        {
+            shared_ammo_weapon = player get_shared_ammo_weapon( self.zombie_weapon_upgrade );
+
+            if ( isdefined( shared_ammo_weapon ) )
+                player_has_weapon = 1;
+        }
+
+        if ( isdefined( level.pers_upgrade_nube ) && level.pers_upgrade_nube )
+            player_has_weapon = maps\mp\zombies\_zm_pers_upgrades_functions::pers_nube_should_we_give_raygun( player_has_weapon, player, self.zombie_weapon_upgrade );
+
+        cost = get_weapon_cost( self.zombie_weapon_upgrade );
+
+        if ( player maps\mp\zombies\_zm_pers_upgrades_functions::is_pers_double_points_active() )
+            cost = int( cost / 2 );
+
+        if ( !player_has_weapon )
+        {
+            if ( player.score >= cost )
+            {
+                if ( self.first_time_triggered == 0 )
+                    self show_all_weapon_buys( player, cost, ammo_cost, is_grenade );
+
+                player maps\mp\zombies\_zm_score::minus_to_player_score( cost, 1 );
+                bbprint( "zombie_uses", "playername %s playerscore %d round %d cost %d name %s x %f y %f z %f type %s", player.name, player.score, level.round_number, cost, self.zombie_weapon_upgrade, self.origin, "weapon" );
+                level notify( "weapon_bought", player, self.zombie_weapon_upgrade );
+
+                if ( self.zombie_weapon_upgrade == "riotshield_zm" )
+                {
+                    player maps\mp\zombies\_zm_equipment::equipment_give( "riotshield_zm" );
+
+                    if ( isdefined( player.player_shield_reset_health ) )
+                        player [[ player.player_shield_reset_health ]]();
+                }
+                else if ( self.zombie_weapon_upgrade == "jetgun_zm" )
+                    player maps\mp\zombies\_zm_equipment::equipment_give( "jetgun_zm" );
+                else
+                {
+                    if ( is_lethal_grenade( self.zombie_weapon_upgrade ) )
+                    {
+                        player takeweapon( player get_player_lethal_grenade() );
+                        player set_player_lethal_grenade( self.zombie_weapon_upgrade );
+                    }
+
+                    str_weapon = self.zombie_weapon_upgrade;
+
+                    if ( isdefined( level.pers_upgrade_nube ) && level.pers_upgrade_nube )
+                        str_weapon = maps\mp\zombies\_zm_pers_upgrades_functions::pers_nube_weapon_upgrade_check( player, str_weapon );
+
+                    player weapon_give( str_weapon );
+                }
+
+                player maps\mp\zombies\_zm_stats::increment_client_stat( "wallbuy_weapons_purchased" );
+                player maps\mp\zombies\_zm_stats::increment_player_stat( "wallbuy_weapons_purchased" );
+            }
+            else
+            {
+                play_sound_on_ent( "no_purchase" );
+                player maps\mp\zombies\_zm_audio::create_and_play_dialog( "general", "no_money_weapon" );
+            }
+        }
+        else
+        {
+            str_weapon = self.zombie_weapon_upgrade;
+
+            if ( isdefined( shared_ammo_weapon ) )
+                str_weapon = shared_ammo_weapon;
+
+            if ( isdefined( level.pers_upgrade_nube ) && level.pers_upgrade_nube )
+                str_weapon = maps\mp\zombies\_zm_pers_upgrades_functions::pers_nube_weapon_ammo_check( player, str_weapon );
+
+            if ( isdefined( self.hacked ) && self.hacked )
+            {
+                if ( !player has_upgrade( str_weapon ) )
+                    ammo_cost = 4500;
+                else
+                    ammo_cost = get_ammo_cost( str_weapon );
+            }
+            else if ( player has_upgrade( str_weapon ) )
+                ammo_cost = 4500;
+            else
+                ammo_cost = get_ammo_cost( str_weapon );
+
+            if ( isdefined( player.pers_upgrades_awarded["nube"] ) && player.pers_upgrades_awarded["nube"] )
+                ammo_cost = maps\mp\zombies\_zm_pers_upgrades_functions::pers_nube_override_ammo_cost( player, self.zombie_weapon_upgrade, ammo_cost );
+
+            if ( player maps\mp\zombies\_zm_pers_upgrades_functions::is_pers_double_points_active() )
+                ammo_cost = int( ammo_cost / 2 );
+
+            if ( str_weapon == "riotshield_zm" )
+                play_sound_on_ent( "no_purchase" );
+            else if ( player.score >= ammo_cost )
+            {
+                if ( self.first_time_triggered == 0 )
+                    self show_all_weapon_buys( player, cost, ammo_cost, is_grenade );
+
+                if ( player has_upgrade( str_weapon ) )
+                {
+                    player maps\mp\zombies\_zm_stats::increment_client_stat( "upgraded_ammo_purchased" );
+                    player maps\mp\zombies\_zm_stats::increment_player_stat( "upgraded_ammo_purchased" );
+                }
+                else
+                {
+                    player maps\mp\zombies\_zm_stats::increment_client_stat( "ammo_purchased" );
+                    player maps\mp\zombies\_zm_stats::increment_player_stat( "ammo_purchased" );
+                }
+
+                if ( str_weapon == "riotshield_zm" )
+                {
+                    if ( isdefined( player.player_shield_reset_health ) )
+                        ammo_given = player [[ player.player_shield_reset_health ]]();
+                    else
+                        ammo_given = 0;
+                }
+                else if ( player has_upgrade( str_weapon ) )
+                    ammo_given = player ammo_give( level.zombie_weapons[str_weapon].upgrade_name );
+                else
+                    ammo_given = player ammo_give( str_weapon );
+
+                if ( ammo_given )
+                {
+                    player maps\mp\zombies\_zm_score::minus_to_player_score( ammo_cost, 1 );
+                    bbprint( "zombie_uses", "playername %s playerscore %d round %d cost %d name %s x %f y %f z %f type %s", player.name, player.score, level.round_number, ammo_cost, str_weapon, self.origin, "ammo" );
+                }
+            }
+            else
+            {
+                play_sound_on_ent( "no_purchase" );
+
+                if ( isdefined( level.custom_generic_deny_vo_func ) )
+                    player [[ level.custom_generic_deny_vo_func ]]();
+                else
+                    player maps\mp\zombies\_zm_audio::create_and_play_dialog( "general", "no_money_weapon" );
+            }
+        }
+
+        if ( isdefined( self.stub ) && isdefined( self.stub.prompt_and_visibility_func ) )
+            self [[ self.stub.prompt_and_visibility_func ]]( player );
+    }
 }
